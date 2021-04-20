@@ -3,40 +3,48 @@ package Mojo::Reactor::Prima;
 use strict;
 use warnings;
 use Carp 'croak';
-use Prima;
+use Prima qw(Utils);
 use Mojo::Base 'Mojo::Reactor';
 use Mojo::Util qw(md5_sum steady_time);
+use Scalar::Util qw(weaken);
 our $VERSION = '1.00';
 
 $ENV{MOJO_REACTOR} ||= 'Mojo::Reactor::Prima';
 
-# XXX 
-use Prima::Application;
+my ($refcnt, $destroy, %loops, $current);
 
-# We have to fall back to Mojo::Reactor::Poll, since application is unique
 sub new
-{ 
+{
 	my $self = shift->SUPER::new;
-	unless ($main::application) {
-		$main::application = Prima::Application->new;
-		$self->{indirect_loop} = 1;
+	$refcnt++;
+	unless ( $::application ) {
+		$::application = Prima::Application->new;
+		$destroy = 1;
 	}
+	$self->{timers} = {};
+	$self->{io}     = {};
+	$loops{"$self"} = $self;
+	weaken $loops{"$self"};
+	$current //= "$self";
 	return $self;
 }
 
 sub DESTROY
 {
 	my $self = shift;
-	if ($self->{indirect_loop}) {
-		$::applicaton->destroy;
-		$::applicaton = undef;
+	delete $loops{"$self"};
+	if (0 == --$refcnt && $destroy && $::application) {
+		$::application->destroy if $::application->alive;
+		$::application = undef;
 	}
 }
 
 sub again
 {
-	croak 'Timer not active' unless my $timer = shift->{timers}{shift()};
-	$timer->{watcher}->start;
+	my $self = shift;
+	croak 'Timer not active' unless my $timer = $self->{timers}{shift()};
+	$timer->{watcher}->stop;
+	$timer->{watcher}->start if $self eq $current;
 }
 
 sub io
@@ -47,6 +55,13 @@ sub io
 }
 
 sub is_running { !!shift->{running} }
+
+sub _next
+{
+	my $self = shift;
+	delete $self->{next_timer};
+	while (my $cb = shift @{$self->{next_tick}}) { $self->$cb() }
+}
 
 sub next_tick
 {
@@ -59,8 +74,10 @@ sub next_tick
 sub one_tick
 {
 	my $self = shift;
+	return $self->stop unless keys %{ $self->{io} } || keys %{ $self->{timers} };
 	local $self->{running} = 1 unless $self->{running};
-	$::applicaton->yield;
+	$self-> _select;
+	$::application->yield(1);
 }
 
 sub recurring { shift->_timer(1, @_) }
@@ -82,23 +99,25 @@ sub remove
 sub reset
 {
 	my $self = shift;
-	$_->destroy for 
-		grep { defined }
-		map { $_->{watcher} }
-		values(%{ $self->{io} }), values %{ $self->{timers} };
-	delete @{$self}{qw(events io next_tick next_timer timers)}
+	$_->destroy for grep { defined } map { $_->{watcher} }
+		values (%{ $self->{io} }),
+		values (%{ $self->{timers} });
+	;
+	delete @{$self}{qw(io next_tick next_timer timers events)}
 }
 
 sub start
 {
 	my $self = shift;
+	return unless keys %{ $self->{io} } || keys %{ $self->{timers} };
 	local $self->{running} = ($self->{running} || 0) + 1;
+	$self-> _select;
 	$::application->go;
 }
 
 sub stop
 {
-	delete shift->{running}; 
+	delete shift->{running};
 	$::application->stop;
 }
 
@@ -127,20 +146,13 @@ sub watch
 	$mode |= fe::Read  if $read;
 	$mode |= fe::Write if $write;
 
-	if ($mode == 0) {
-		my $obj = delete $io->{watcher};
-		$obj->destroy if $obj;
-	}
-	elsif (my $obj = $io->{watcher}) {
-		$obj->mask($mode);
-	} else {
-		$io->{watcher} = Prima::File->new(
-			fd      => $fd,
-			mask    => $mode,
-			onRead  => sub { $self->_try('I/O watcher', $self->{io}{$fd}{cb}, 0) },
-			onWrite => sub { $self->_try('I/O watcher', $self->{io}{$fd}{cb}, 1) },
-		);
-	}
+	my $obj = $io->{watcher} //= Prima::File->new(
+		fd      => $fd,
+		onRead  => sub { $self->_try('I/O watcher', $self->{io}{$fd}{cb}, 0) },
+		onWrite => sub { $self->_try('I/O watcher', $self->{io}{$fd}{cb}, 1) },
+	);
+	$io->{mask} = $mode;
+	$obj->mask($mode) if $self eq $current;
 
 	return $self;
 }
@@ -156,25 +168,45 @@ sub _id
 sub _timer
 {
 	my ($self, $recurring, $after, $cb) = @_;
-	$after ||= 0.0001 if $recurring;
+	$after ||= 0.0001;
 	my $id  = $self->_id;
-	$self->{timers}{$id}{watcher} = Prima::Timer->new(
-		timeout => $after,
+
+	my $t = $self->{timers}{$id}{watcher} = Prima::Timer->new(
+		timeout => $after * 1000,
 		onTick  => sub {
 			unless ($recurring) {
-				$_[0]->stop;
+				$_[0]->destroy;
 	  			delete $self->{timers}{$id};
 			}
 	  		$self->_try('Timer', $cb);
 		},
 	);
+	$t->start if $self eq $current;
 	return $id;
 }
 
 sub _try
 {
 	my ($self, $what, $cb) = @_;
-	eval { $self->$cb(@_); 1 } or $self->emit(error => "$what failed: $@");
+	eval { $self->$cb($self, @_); 1 } or $self->emit(error => "$what failed: $@");
+	$self->stop unless keys %{ $self->{io} } || keys %{ $self->{timers} };
+
+}
+
+sub _select
+{
+	my $self = shift;
+	return if $current eq "$self";
+	$current = "$self";
+	for my $loop ( values %loops ) {
+		if ( $self eq $loop ) {
+			$_->{watcher}->start for values %{ $loop->{timers} };
+			$_->{watcher}->mask( $_->{mask} ) for values %{ $loop->{io} };
+		} else {
+			$_->{watcher}->stop for values %{ $loop->{timers} };
+			$_->{watcher}->mask( 0 ) for values %{ $loop->{io} };
+		}
+	}
 }
 
 1;
