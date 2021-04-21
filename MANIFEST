@@ -1,0 +1,4 @@
+MANIFEST
+Prima.pm
+t/test.t
+Makefile.PL
