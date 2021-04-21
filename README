@@ -1,0 +1,23 @@
+NAME
+    Mojo::Reactor::Prima - Prima event loop backend for Mojo::Reactor
+
+DESCRIPTION
+    Mojo::Reactor::Prima is an event reactor for Mojo::IOLoop that uses
+    Prima. The usage is exactly the same as other Mojo::Reactor
+    implementations such as Mojo::Reactor::Poll. Mojo::Reactor::Prima will
+    be used as the default backend for Mojo::IOLoop if it is loaded before
+    Mojo::IOLoop or any module using the loop. However, when invoking a
+    Mojolicious application through morbo or hypnotoad, the reactor must be
+    set as the default by setting the "MOJO_REACTOR" environment variable to
+    "Mojo::Reactor::Prima".
+
+AUTHOR
+    Dmitry Karasik <dmitry@karasik.eu.org>
+
+LICENSE
+    This library is free software; you may redistribute it and/or modify it
+    under the terms of the Artistic License version 2.0.
+
+SEE ALSO
+    Mojolicious, Mojo::IOLoop, Prima
+
