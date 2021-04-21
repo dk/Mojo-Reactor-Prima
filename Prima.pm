@@ -44,7 +44,7 @@ sub again
 	my $self = shift;
 	croak 'Timer not active' unless my $timer = $self->{timers}{shift()};
 	$timer->{watcher}->stop;
-	$timer->{watcher}->start if $self eq $current;
+	$timer->{watcher}->start if $self->_is_active;
 }
 
 sub io
@@ -152,7 +152,7 @@ sub watch
 		onWrite => sub { $self->_try('I/O watcher', $self->{io}{$fd}{cb}, 1) },
 	);
 	$io->{mask} = $mode;
-	$obj->mask($mode) if $self eq $current;
+	$obj->mask($mode) if $self->_is_active;
 
 	return $self;
 }
@@ -181,7 +181,7 @@ sub _timer
 	  		$self->_try('Timer', $cb);
 		},
 	);
-	$t->start if $self eq $current;
+	$t->start if $self->_is_active;
 	return $id;
 }
 
@@ -190,8 +190,9 @@ sub _try
 	my ($self, $what, $cb) = @_;
 	eval { $self->$cb($self, @_); 1 } or $self->emit(error => "$what failed: $@");
 	$self->stop unless keys %{ $self->{io} } || keys %{ $self->{timers} };
-
 }
+
+sub _is_active { $_[0] eq $current || $_[0]->{running } }
 
 sub _select
 {
@@ -202,7 +203,7 @@ sub _select
 		if ( $self eq $loop ) {
 			$_->{watcher}->start for values %{ $loop->{timers} };
 			$_->{watcher}->mask( $_->{mask} ) for values %{ $loop->{io} };
-		} else {
+		} elsif ( ! $loop->{running} ) {
 			$_->{watcher}->stop for values %{ $loop->{timers} };
 			$_->{watcher}->mask( 0 ) for values %{ $loop->{io} };
 		}

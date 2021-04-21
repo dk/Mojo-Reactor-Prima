@@ -8,7 +8,7 @@ use Mojo::Reactor::Prima;
 use Mojo::Util 'steady_time';
 use Scalar::Util 'refaddr';
 
-#alarm(60);
+alarm(120);
 
 # Instantiation
 my $reactor = Mojo::Reactor::Prima->new;
@@ -187,6 +187,18 @@ $reactor2->start;
 ok !$timer, 'timer was not triggered';
 ok $timer2, 'timer was triggered';
 $reactor->reset;
+$reactor2->reset;
+$timer = $timer2 = 0;
+$reactor->timer(0 => sub { $timer++ });
+$reactor2->timer(0.25 => sub {
+	$reactor->start;
+	$reactor2->timer(0 => sub { $timer2++ });
+});
+$reactor2->start;
+ok $timer, 'timer was triggered (reentrancy)';
+ok $timer2, 'timer2 was triggered (reentrancy)';
+$reactor->reset;
+$reactor2->reset;
 
 # Restart timer
 my ($single, $pair, $one, $two, $last);
