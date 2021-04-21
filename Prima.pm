@@ -212,3 +212,34 @@ sub _select
 
 1;
 
+=pod
+
+=head1 NAME
+
+Mojo::Reactor::Prima - Prima event loop backend for Mojo::Reactor
+
+=head1 DESCRIPTION
+
+L<Mojo::Reactor::Prima> is an event reactor for L<Mojo::IOLoop> that uses
+L<Prima>. The usage is exactly the same as other L<Mojo::Reactor>
+implementations such as L<Mojo::Reactor::Poll>. L<Mojo::Reactor::Prima> will be
+used as the default backend for L<Mojo::IOLoop> if it is loaded before
+L<Mojo::IOLoop> or any module using the loop. However, when invoking a
+L<Mojolicious> application through L<morbo> or L<hypnotoad>, the reactor must
+be set as the default by setting the C<MOJO_REACTOR> environment variable to
+C<Mojo::Reactor::Prima>.
+
+=head1 AUTHOR
+
+Dmitry Karasik E<lt>dmitry@karasik.eu.orgE<gt>
+
+=head1 LICENSE
+
+This library is free software; you may redistribute it and/or modify it under
+the terms of the Artistic License version 2.0.
+
+=head1 SEE ALSO
+
+L<Mojolicious>, L<Mojo::IOLoop>, L<Prima>
+
+=cut
