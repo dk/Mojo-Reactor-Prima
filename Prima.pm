@@ -145,7 +145,6 @@ sub watch
 	my $mode = 0;
 	$mode |= fe::Read  if $read;
 	$mode |= fe::Write if $write;
-
 	my $obj = $io->{watcher} //= Prima::File->new(
 		fd      => $fd,
 		onRead  => sub { $self->_try('I/O watcher', $self->{io}{$fd}{cb}, 0) },
@@ -187,8 +186,8 @@ sub _timer
 
 sub _try
 {
-	my ($self, $what, $cb) = @_;
-	eval { $self->$cb($self, @_); 1 } or $self->emit(error => "$what failed: $@");
+	my ($self, $what, $cb) = (shift,shift,shift);
+	eval { $self->$cb(@_); 1 } or $self->emit(error => "$what failed: $@");
 	$self->stop unless keys %{ $self->{io} } || keys %{ $self->{timers} };
 }
 
