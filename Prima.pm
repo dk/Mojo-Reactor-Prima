@@ -7,7 +7,7 @@ use Prima qw(Utils);
 use Mojo::Base 'Mojo::Reactor';
 use Mojo::Util qw(md5_sum steady_time);
 use Scalar::Util qw(weaken);
-our $VERSION = '1.01';
+our $VERSION = '1.02';
 
 $ENV{MOJO_REACTOR} ||= 'Mojo::Reactor::Prima';
 
